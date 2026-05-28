@@ -4,6 +4,53 @@ const ytdl = require('@distube/ytdl-core');
 const cache = require('./cache');
 const { DEFAULT_CACHE_TTL } = require('../config/constants');
 
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Create a ytdl agent with cookies from environment or a local cookies.json file.
+ * Cookies help avoid YouTube rate limiting on shared cloud IPs and local connections.
+ * 
+ * You can place a 'cookies.json' file in the root of the backend folder with your JSON cookies:
+ * [
+ *   {"name":"__Secure-1PSID","value":"xxx","domain":".youtube.com"}
+ * ]
+ * 
+ * Or set YT_COOKIES env var as the JSON string.
+ */
+let ytdlAgent = null;
+
+function getAgent() {
+  if (ytdlAgent) return ytdlAgent;
+
+  // 1. Try reading cookies.json from project root
+  try {
+    const cookiesPath = path.join(__dirname, '../../cookies.json');
+    if (fs.existsSync(cookiesPath)) {
+      const fileContent = fs.readFileSync(cookiesPath, 'utf8');
+      const cookies = JSON.parse(fileContent);
+      ytdlAgent = ytdl.createAgent(cookies);
+      console.log('[stream] Loaded ytdl agent with', cookies.length, 'cookies from cookies.json');
+      return ytdlAgent;
+    }
+  } catch (e) {
+    console.warn('[stream] Failed to load cookies.json:', e.message);
+  }
+  
+  // 2. Fallback to YT_COOKIES env var
+  const cookiesEnv = process.env.YT_COOKIES;
+  if (cookiesEnv) {
+    try {
+      const cookies = JSON.parse(cookiesEnv);
+      ytdlAgent = ytdl.createAgent(cookies);
+      console.log('[stream] Created ytdl agent with', cookies.length, 'cookies from YT_COOKIES env var');
+    } catch (e) {
+      console.warn('[stream] Failed to parse YT_COOKIES:', e.message);
+    }
+  }
+  return ytdlAgent;
+}
+
 /**
  * Extract the best audio stream URL for a YouTube video using @distube/ytdl-core.
  * This library handles cipher decryption, signature extraction, and format
@@ -23,10 +70,48 @@ async function getStreamUrl(videoId) {
 
   // 2. Get video info (handles cipher decryption internally)
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const info = await ytdl.getInfo(videoUrl);
+  const agent = getAgent();
+  
+  const infoOptions = {
+    requestOptions: {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+    },
+  };
+  if (agent) {
+    infoOptions.agent = agent;
+  }
+
+  let info;
+  let lastError;
+
+  // Retry up to 3 times with increasing delays
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      info = await ytdl.getInfo(videoUrl, infoOptions);
+      break; // success
+    } catch (err) {
+      lastError = err;
+      console.warn(`[stream] getInfo attempt ${attempt + 1} failed for ${videoId}:`, err.message);
+      
+      // If rate limited (429), wait before retrying
+      if (err.message?.includes('429') || err.message?.includes('Too Many')) {
+        const delay = (attempt + 1) * 2000; // 2s, 4s, 6s
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // Non-retryable error
+        throw err;
+      }
+    }
+  }
+
+  if (!info) {
+    throw lastError || new Error(`Failed to get info for ${videoId}`);
+  }
 
   // 3. Check playability
-  if (!info || !info.formats || info.formats.length === 0) {
+  if (!info.formats || info.formats.length === 0) {
     throw new Error(`No formats available for video ${videoId}`);
   }
 
@@ -73,9 +158,6 @@ async function getStreamUrl(videoId) {
  * Uses ytdl's built-in streaming which handles cipher decryption,
  * chunked downloading, and reconnection automatically.
  *
- * This lets the mobile client stream audio without CORS/IP issues,
- * and provides proper Content-Type headers for ExoPlayer/AVPlayer.
- *
  * @param {string} videoId
  * @param {import('express').Response} res
  */
@@ -97,12 +179,21 @@ async function proxyStream(videoId, res) {
 
     // Use ytdl to create a readable stream (handles reconnection automatically)
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const agent = getAgent();
 
     // Build ytdl options to match the format we selected
     const dlOptions = {
       quality: 'highestaudio',
       filter: 'audioonly',
+      requestOptions: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+      },
     };
+    if (agent) {
+      dlOptions.agent = agent;
+    }
 
     // Handle range requests for seeking support
     if (res.req.headers.range) {

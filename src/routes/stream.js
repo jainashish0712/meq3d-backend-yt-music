@@ -26,13 +26,28 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
   }
 
   // Default: return the stream URL + metadata
-  const streamData = await getStreamUrl(videoId);
-
-  res.json({
-    success: true,
-    data: streamData,
-    error: null,
-  });
+  try {
+    const streamData = await getStreamUrl(videoId);
+    res.json({
+      success: true,
+      data: streamData,
+      error: null,
+    });
+  } catch (err) {
+    // Differentiate rate-limit errors from other errors
+    const is429 = err.message?.includes('429') || err.message?.includes('Too Many');
+    const statusCode = is429 ? 429 : 500;
+    
+    console.error(`[stream route] Error for ${videoId}:`, err.message);
+    
+    res.status(statusCode).json({
+      success: false,
+      data: null,
+      error: is429
+        ? 'YouTube rate limit hit. Please try again in a few seconds.'
+        : `Stream extraction failed: ${err.message}`,
+    });
+  }
 }));
 
 module.exports = router;
