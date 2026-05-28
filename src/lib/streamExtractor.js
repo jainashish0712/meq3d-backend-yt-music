@@ -1,17 +1,18 @@
 'use strict';
 
-const { execFile } = require('child_process');
+const ytdl = require('@distube/ytdl-core');
 const cache = require('./cache');
 const { DEFAULT_CACHE_TTL } = require('../config/constants');
 
-const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
-
 /**
- * Extract the best audio stream URL for a YouTube video using yt-dlp.
+ * Extract the best audio stream URL for a YouTube video using @distube/ytdl-core.
+ * This library handles cipher decryption, signature extraction, and format
+ * negotiation automatically — no external binaries (yt-dlp) needed.
+ *
  * Results are cached in memory with a configurable TTL.
  *
  * @param {string} videoId — YouTube video ID (e.g. 'dQw4w9WgXcQ')
- * @returns {Promise<{ streamUrl: string, format: string, bitrate: string, expiresIn: number }>}
+ * @returns {Promise<{ streamUrl: string, format: string, bitrate: number, contentLength: string, durationMs: number, expiresIn: number }>}
  */
 async function getStreamUrl(videoId) {
   // 1. Check cache first
@@ -20,51 +21,44 @@ async function getStreamUrl(videoId) {
     return cached;
   }
 
-  // 2. Build the video URL
+  // 2. Get video info (handles cipher decryption internally)
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const info = await ytdl.getInfo(videoUrl);
 
-  // 3. Run yt-dlp to extract stream info
-  //    We get both the URL and format info in one call using --print
-  const result = await new Promise((resolve, reject) => {
-    execFile(
-      YT_DLP_PATH,
-      [
-        '-f', 'bestaudio',
-        '--get-url',
-        '--print', '%(format_id)s|||%(abr)s|||%(acodec)s|||%(ext)s',
-        '--no-warnings',
-        '--no-playlist',
-        videoUrl,
-      ],
-      { timeout: 30000, maxBuffer: 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error) {
-          // Provide a more descriptive error
-          const msg = stderr?.trim() || error.message;
-          reject(new Error(`yt-dlp failed for ${videoId}: ${msg}`));
-          return;
-        }
-        resolve(stdout.trim());
-      }
-    );
-  });
-
-  // 4. Parse output — yt-dlp outputs the format info line first, then the URL
-  const lines = result.split('\n').filter(Boolean);
-  if (lines.length < 2) {
-    throw new Error(`Unexpected yt-dlp output for ${videoId}: ${result}`);
+  // 3. Check playability
+  if (!info || !info.formats || info.formats.length === 0) {
+    throw new Error(`No formats available for video ${videoId}`);
   }
 
-  const formatLine = lines[0]; // format_id|||abr|||acodec|||ext
-  const streamUrl = lines[1];  // the actual stream URL
+  // 4. Get the best audio-only format
+  //    Prefer MP4/M4A (best compatibility with mobile players like ExoPlayer/AVPlayer)
+  const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
 
-  const [formatId, abr, acodec, ext] = formatLine.split('|||');
+  if (audioFormats.length === 0) {
+    throw new Error(`No audio-only streams found for ${videoId}`);
+  }
+
+  // Sort: MP4 first (for mobile compatibility), then by bitrate descending
+  const sorted = audioFormats.sort((a, b) => {
+    const aIsMp4 = (a.mimeType || '').includes('mp4');
+    const bIsMp4 = (b.mimeType || '').includes('mp4');
+    if (aIsMp4 && !bIsMp4) return -1;
+    if (!aIsMp4 && bIsMp4) return 1;
+    return (b.audioBitrate || 0) - (a.audioBitrate || 0);
+  });
+
+  const bestFormat = sorted[0];
+
+  if (!bestFormat.url) {
+    throw new Error(`No playable audio URL for ${videoId} (cipher protected)`);
+  }
 
   const streamData = {
-    streamUrl,
-    format: `${acodec || 'unknown'}/${ext || 'unknown'}`,
-    bitrate: abr ? `${abr}k` : 'unknown',
-    formatId: formatId || 'unknown',
+    streamUrl: bestFormat.url,
+    format: (bestFormat.mimeType || 'audio/mp4').split(';')[0],
+    bitrate: bestFormat.audioBitrate || 0,
+    contentLength: bestFormat.contentLength || null,
+    durationMs: parseInt(info.videoDetails.lengthSeconds || '0', 10) * 1000,
     expiresIn: DEFAULT_CACHE_TTL,
   };
 
@@ -75,51 +69,89 @@ async function getStreamUrl(videoId) {
 }
 
 /**
- * Proxy an audio stream — pipes yt-dlp stdout directly to an HTTP response.
- * This lets the client stream audio through our server without exposing
- * the raw Google CDN URL.
+ * Proxy an audio stream through the server.
+ * Uses ytdl's built-in streaming which handles cipher decryption,
+ * chunked downloading, and reconnection automatically.
+ *
+ * This lets the mobile client stream audio without CORS/IP issues,
+ * and provides proper Content-Type headers for ExoPlayer/AVPlayer.
  *
  * @param {string} videoId
  * @param {import('express').Response} res
  */
-function proxyStream(videoId, res) {
-  const { spawn } = require('child_process');
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+async function proxyStream(videoId, res) {
+  try {
+    // First get the format info so we can set proper headers
+    const streamData = await getStreamUrl(videoId);
 
-  const proc = spawn(YT_DLP_PATH, [
-    '-f', 'bestaudio',
-    '-o', '-',           // Output to stdout
-    '--no-warnings',
-    '--no-playlist',
-    videoUrl,
-  ]);
+    // Set response headers for the mobile player
+    const contentType = streamData.format || 'audio/mp4';
+    res.setHeader('Content-Type', contentType);
 
-  res.setHeader('Content-Type', 'audio/webm');
-  res.setHeader('Transfer-Encoding', 'chunked');
+    if (streamData.contentLength) {
+      res.setHeader('Content-Length', streamData.contentLength);
+    }
 
-  proc.stdout.pipe(res);
+    // Allow range requests for seeking
+    res.setHeader('Accept-Ranges', 'bytes');
 
-  proc.stderr.on('data', (chunk) => {
-    console.error(`[yt-dlp proxy stderr] ${chunk.toString()}`);
-  });
+    // Use ytdl to create a readable stream (handles reconnection automatically)
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  proc.on('error', (err) => {
-    console.error(`[yt-dlp proxy error] ${err.message}`);
+    // Build ytdl options to match the format we selected
+    const dlOptions = {
+      quality: 'highestaudio',
+      filter: 'audioonly',
+    };
+
+    // Handle range requests for seeking support
+    if (res.req.headers.range) {
+      const range = res.req.headers.range;
+      const match = range.match(/bytes=(\d+)-(\d*)/);
+      if (match && streamData.contentLength) {
+        const start = parseInt(match[1], 10);
+        const end = match[2] ? parseInt(match[2], 10) : parseInt(streamData.contentLength, 10) - 1;
+        const chunkSize = end - start + 1;
+
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${streamData.contentLength}`);
+        res.setHeader('Content-Length', chunkSize);
+
+        dlOptions.range = { start, end };
+      }
+    }
+
+    const audioStream = ytdl(videoUrl, dlOptions);
+
+    // Pipe audio data to HTTP response
+    audioStream.pipe(res);
+
+    // Handle stream errors
+    audioStream.on('error', (err) => {
+      console.error(`[stream proxy error] ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          data: null,
+          error: `Stream proxy failed: ${err.message}`,
+        });
+      }
+    });
+
+    // Clean up if the client disconnects
+    res.on('close', () => {
+      audioStream.destroy();
+    });
+  } catch (err) {
+    console.error(`[stream proxy error] ${err.message}`);
     if (!res.headersSent) {
-      res.status(500).json({ success: false, data: null, error: 'Stream proxy failed' });
+      res.status(500).json({
+        success: false,
+        data: null,
+        error: `Stream proxy failed: ${err.message}`,
+      });
     }
-  });
-
-  proc.on('close', (code) => {
-    if (code !== 0 && !res.writableEnded) {
-      res.end();
-    }
-  });
-
-  // If the client disconnects, kill the yt-dlp process
-  res.on('close', () => {
-    proc.kill('SIGTERM');
-  });
+  }
 }
 
 module.exports = { getStreamUrl, proxyStream };

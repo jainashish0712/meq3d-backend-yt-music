@@ -7,9 +7,15 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js"
   },
-  "keywords": ["youtube-music", "innertube", "api", "streaming"],
+  "keywords": [
+    "youtube-music",
+    "innertube",
+    "api",
+    "streaming"
+  ],
   "license": "MIT",
   "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.7.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",

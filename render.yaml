@@ -3,15 +3,13 @@ services:
     name: youtube-music-backend
     runtime: node
     plan: free
-    buildCommand: npm install && ./render-build.sh
+    buildCommand: chmod +x ./render-build.sh && ./render-build.sh
     startCommand: node src/app.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
-      - key: YT_DLP_PATH
-        value: /opt/render/project/src/yt-dlp
       - key: CACHE_TTL_SECONDS
         value: 14400
       - key: LOG_LEVEL

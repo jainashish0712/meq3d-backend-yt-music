@@ -25,7 +25,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     return proxyStream(videoId, res);
   }
 
-  // Default: return the stream URL
+  // Default: return the stream URL + metadata
   const streamData = await getStreamUrl(videoId);
 
   res.json({
