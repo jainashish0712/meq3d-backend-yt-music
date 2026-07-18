@@ -45,12 +45,32 @@ app.use(morgan(process.env.LOG_LEVEL || 'dev'));
 
 // ─── Health Check ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
+  const binDir = path.join(__dirname, '../bin');
+  const binExists = fs.existsSync(binDir);
+  let binContents = [];
+  if (binExists) {
+    try {
+      binContents = fs.readdirSync(binDir);
+    } catch (e) {
+      binContents = [e.message];
+    }
+  }
+
   res.json({
     success: true,
     data: {
       status: 'ok',
       uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
+      debug: {
+        ytDlpPathEnv: process.env.YT_DLP_PATH || null,
+        pathEnv: process.env.PATH || null,
+        binExists,
+        ytDlpExists: fs.existsSync(path.join(binDir, 'yt-dlp')),
+        binContents,
+        cwd: process.cwd(),
+        __dirname,
+      }
     },
     error: null,
   });
