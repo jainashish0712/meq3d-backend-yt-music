@@ -17,7 +17,11 @@ mv ffmpeg-*-amd64-static/ffprobe bin/
 chmod +x bin/ffmpeg bin/ffprobe
 rm -rf ffmpeg.tar.xz ffmpeg-*-amd64-static
 
-echo "==> Installing npm dependencies..."
-npm install --production
+if [ "$IS_POSTINSTALL" = "true" ]; then
+  echo "==> Triggered via postinstall. Skipping nested npm install to avoid recursion."
+else
+  echo "==> Triggered directly. Installing npm dependencies..."
+  npm install --production
+fi
 
 echo "==> Build complete!"
