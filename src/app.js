@@ -135,11 +135,12 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // ─── Start Server ─────────────────────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[system] Server successfully bound to 0.0.0.0:${PORT}`);
   console.log(`
   ╔══════════════════════════════════════════════════╗
   ║   YouTube Music Backend API                      ║
-  ║   Running on http://localhost:${PORT}               ║
+  ║   Running on http://0.0.0.0:${PORT}                 ║
   ╠══════════════════════════════════════════════════╣
   ║   Endpoints:                                     ║
   ║   GET /api/health          Health check           ║
