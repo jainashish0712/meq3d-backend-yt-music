@@ -33,8 +33,12 @@ if (foundYtDlp && !process.env.YT_DLP_PATH) {
 }
 
 // Check and log cookie status at startup
+const cookiesTxtPath = path.join(__dirname, '../cookies.txt');
 const cookiesPath = path.join(__dirname, '../cookies.json');
-if (fs.existsSync(cookiesPath)) {
+
+if (fs.existsSync(cookiesTxtPath)) {
+  console.log(`[system] Found cookies.txt at ${cookiesTxtPath} (Netscape format)`);
+} else if (fs.existsSync(cookiesPath)) {
   try {
     const content = fs.readFileSync(cookiesPath, 'utf8');
     console.log(`[system] Found cookies.json at ${cookiesPath} (will be used for stream extraction and global fallback)`);
@@ -44,7 +48,7 @@ if (fs.existsSync(cookiesPath)) {
 } else if (process.env.YT_COOKIES) {
   console.log('[system] YT_COOKIES environment variable is defined.');
 } else {
-  console.log('[system] No cookies.json or YT_COOKIES found. Running in anonymous mode.');
+  console.log('[system] No cookies.txt, cookies.json or YT_COOKIES found. Running in anonymous mode.');
 }
 
 const express = require('express');

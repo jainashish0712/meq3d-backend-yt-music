@@ -23,24 +23,28 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     throw createHttpError(400, 'Invalid video ID. Must be an 11-character YouTube video ID.');
   }
 
-  // Extract cookies from request headers, fallback to local cookies.json if present
+  // Extract cookies from request headers, fallback to local cookies.txt / cookies.json if present
   let clientCookie = req.headers.cookie || req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
 
-  // if (!clientCookie) {
+  if (!clientCookie) {
     try {
       const fs = require('fs');
       const path = require('path');
-      const cookiesPath = path.join(__dirname, '../../cookies.json');
-      if (fs.existsSync(cookiesPath)) {
-        clientCookie = fs.readFileSync(cookiesPath, 'utf8');
+      const cookiesTxtPath = path.join(__dirname, '../../cookies.txt');
+      const cookiesJsonPath = path.join(__dirname, '../../cookies.json');
+      if (fs.existsSync(cookiesTxtPath)) {
+        clientCookie = fs.readFileSync(cookiesTxtPath, 'utf8');
+        console.log('[stream route] Read cookies.txt content');
+      } else if (fs.existsSync(cookiesJsonPath)) {
+        clientCookie = fs.readFileSync(cookiesJsonPath, 'utf8');
         console.log('[stream route] Read cookies.json content:', clientCookie);
       } else {
-        console.log('[stream route] cookies.json not found at:', cookiesPath);
+        console.log('[stream route] cookies.txt or cookies.json not found');
       }
     } catch (e) {
-      console.warn('[stream route] Failed to read cookies.json:', e.message);
+      console.warn('[stream route] Failed to read cookies.txt / cookies.json:', e.message);
     }
-  // }
+  }
 
   // Proxy mode: stream audio bytes through this server
   if (req.query.proxy === 'true') {

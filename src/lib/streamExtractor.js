@@ -37,6 +37,32 @@ function parseCookies(content) {
     }
   }
 
+  // Check if Netscape format (contains tabs or starts with cookie spec comment)
+  if (trimmed.includes('\t') || trimmed.startsWith('#')) {
+    try {
+      const cookies = [];
+      const lines = trimmed.split('\n');
+      for (let line of lines) {
+        const l = line.trim();
+        if (!l || l.startsWith('#')) continue;
+        const parts = l.split('\t');
+        if (parts.length >= 7) {
+          cookies.push({
+            domain: parts[0],
+            path: parts[2],
+            secure: parts[3] === 'TRUE',
+            expirationDate: parseInt(parts[4], 10),
+            name: parts[5],
+            value: parts[6]
+          });
+        }
+      }
+      return cookies.length > 0 ? cookies : null;
+    } catch (e) {
+      console.warn('[cookies] Failed to parse Netscape cookie file:', e.message);
+    }
+  }
+
   // Fallback: parse as standard raw cookie string
   try {
     const cookies = [];
@@ -84,17 +110,29 @@ function getAgent(customCookie = null) {
 
   if (ytdlAgent) return ytdlAgent;
 
-  // 1. Try reading cookies.json from project root
   let cookies = null;
+
+  // 1. Try reading cookies.txt first, then cookies.json from project root
   try {
-    const cookiesPath = path.join(__dirname, '../../cookies.json');
-    if (fs.existsSync(cookiesPath)) {
-      const fileContent = fs.readFileSync(cookiesPath, 'utf8');
+    const cookiesTxtPath = path.join(__dirname, '../../cookies.txt');
+    if (fs.existsSync(cookiesTxtPath)) {
+      const fileContent = fs.readFileSync(cookiesTxtPath, 'utf8');
       cookies = parseCookies(fileContent);
-      console.log('[stream] Loaded cookies from cookies.json');
+      console.log('[stream] Loaded cookies from cookies.txt');
     }
-  } catch (e) {
-    console.warn('[stream] Failed to load cookies.json:', e.message);
+  } catch (e) {}
+
+  if (!cookies) {
+    try {
+      const cookiesPath = path.join(__dirname, '../../cookies.json');
+      if (fs.existsSync(cookiesPath)) {
+        const fileContent = fs.readFileSync(cookiesPath, 'utf8');
+        cookies = parseCookies(fileContent);
+        console.log('[stream] Loaded cookies from cookies.json');
+      }
+    } catch (e) {
+      console.warn('[stream] Failed to load cookies.json:', e.message);
+    }
   }
   
   // 2. Fallback to YT_COOKIES env var

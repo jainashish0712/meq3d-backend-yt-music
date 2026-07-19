@@ -48,17 +48,20 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     }
   }
 
-  // Extract YouTube cookies from standard Cookie header or custom headers, fallback to cookies.json
+  // Extract YouTube cookies from standard Cookie header or custom headers, fallback to cookies.txt / cookies.json
   let clientCookie = req.headers.cookie || req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
 
   if (!clientCookie) {
     try {
-      const cookiesPath = path.join(__dirname, '../../cookies.json');
-      if (fs.existsSync(cookiesPath)) {
-        clientCookie = fs.readFileSync(cookiesPath, 'utf8');
+      const cookiesTxtPath = path.join(__dirname, '../../cookies.txt');
+      const cookiesJsonPath = path.join(__dirname, '../../cookies.json');
+      if (fs.existsSync(cookiesTxtPath)) {
+        clientCookie = fs.readFileSync(cookiesTxtPath, 'utf8');
+      } else if (fs.existsSync(cookiesJsonPath)) {
+        clientCookie = fs.readFileSync(cookiesJsonPath, 'utf8');
       }
     } catch (e) {
-      console.warn('[streamfile] Failed to read cookies.json:', e.message);
+      console.warn('[streamfile] Failed to read fallback cookie files:', e.message);
     }
   }
 
