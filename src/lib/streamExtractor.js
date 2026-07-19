@@ -65,7 +65,23 @@ function parseCookies(content) {
   }
 }
 
-function getAgent() {
+function getAgent(customCookie = null) {
+  // If custom cookies are passed, create a request-specific agent!
+  if (customCookie) {
+    const cookies = parseCookies(customCookie);
+    if (cookies) {
+      try {
+        const proxyUri = process.env.YT_PROXY;
+        if (proxyUri) {
+          return ytdl.createProxyAgent({ uri: proxyUri }, cookies);
+        }
+        return ytdl.createAgent(cookies);
+      } catch (e) {
+        console.error('[stream] Failed to create request-specific ytdl agent:', e.message);
+      }
+    }
+  }
+
   if (ytdlAgent) return ytdlAgent;
 
   // 1. Try reading cookies.json from project root
@@ -123,18 +139,21 @@ function getAgent() {
  * Results are cached in memory with a configurable TTL.
  *
  * @param {string} videoId — YouTube video ID (e.g. 'dQw4w9WgXcQ')
+ * @param {string} [customCookie] — custom cookies to use for this request
  * @returns {Promise<{ streamUrl: string, format: string, bitrate: number, contentLength: string, durationMs: number, expiresIn: number }>}
  */
-async function getStreamUrl(videoId) {
-  // 1. Check cache first
-  const cached = cache.get(`stream:${videoId}`);
-  if (cached) {
-    return cached;
+async function getStreamUrl(videoId, customCookie = null) {
+  // 1. Check cache first (only use cache if no custom cookies are requested)
+  if (!customCookie) {
+    const cached = cache.get(`stream:${videoId}`);
+    if (cached) {
+      return cached;
+    }
   }
 
   // 2. Get video info (handles cipher decryption internally)
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const agent = getAgent();
+  const agent = getAgent(customCookie);
   
   const infoOptions = {
     requestOptions: {
@@ -224,11 +243,12 @@ async function getStreamUrl(videoId) {
  *
  * @param {string} videoId
  * @param {import('express').Response} res
+ * @param {string} [customCookie] — custom cookies to use for this request
  */
-async function proxyStream(videoId, res) {
+async function proxyStream(videoId, res, customCookie = null) {
   try {
     // First get the format info so we can set proper headers
-    const streamData = await getStreamUrl(videoId);
+    const streamData = await getStreamUrl(videoId, customCookie);
 
     // Set response headers for the mobile player
     const contentType = streamData.format || 'audio/mp4';
@@ -243,7 +263,7 @@ async function proxyStream(videoId, res) {
 
     // Use ytdl to create a readable stream (handles reconnection automatically)
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const agent = getAgent();
+    const agent = getAgent(customCookie);
 
     // Build ytdl options to match the format we selected
     const dlOptions = {

@@ -32,6 +32,21 @@ if (foundYtDlp && !process.env.YT_DLP_PATH) {
   console.log(`[system] Auto-configured YT_DLP_PATH to: ${foundYtDlp}`);
 }
 
+// Check and log cookie status at startup
+const cookiesPath = path.join(__dirname, '../cookies.json');
+if (fs.existsSync(cookiesPath)) {
+  try {
+    const content = fs.readFileSync(cookiesPath, 'utf8');
+    console.log(`[system] Found cookies.json at ${cookiesPath} (will be used for stream extraction and global fallback)`);
+  } catch (e) {
+    console.error(`[system] Error reading cookies.json: ${e.message}`);
+  }
+} else if (process.env.YT_COOKIES) {
+  console.log('[system] YT_COOKIES environment variable is defined.');
+} else {
+  console.log('[system] No cookies.json or YT_COOKIES found. Running in anonymous mode.');
+}
+
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');

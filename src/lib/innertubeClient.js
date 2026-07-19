@@ -1,6 +1,82 @@
 'use strict';
 
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Parses a cookie string or JSON array into an array of cookie objects.
+ * Supports:
+ * 1. JSON array format: [{"name": "foo", "value": "bar"}, ...]
+ * 2. Raw Cookie Header format: "name1=value1; name2=value2"
+ */
+function parseCookies(content) {
+  if (!content) return null;
+  const trimmed = content.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (e) {
+      console.warn('[cookies] Failed to parse cookies as JSON array:', e.message);
+    }
+  }
+
+  // Fallback: parse as standard raw cookie string
+  try {
+    const cookies = [];
+    const pairs = trimmed.split(';');
+    for (let pair of pairs) {
+      const trimmedPair = pair.trim();
+      if (!trimmedPair) continue;
+      const index = trimmedPair.indexOf('=');
+      if (index === -1) continue;
+      const name = trimmedPair.substring(0, index).trim();
+      const value = trimmedPair.substring(index + 1).trim();
+      if (name) {
+        cookies.push({
+          name,
+          value,
+          domain: '.youtube.com',
+          path: '/',
+          secure: true
+        });
+      }
+    }
+    return cookies.length > 0 ? cookies : null;
+  } catch (e) {
+    console.warn('[cookies] Failed to parse raw cookie string:', e.message);
+    return null;
+  }
+}
+
+// Helper to load cookies for InnerTube
+let globalCookieHeader = null;
+
+function getGlobalCookieHeader() {
+  if (globalCookieHeader !== null) return globalCookieHeader;
+
+  let cookies = null;
+  try {
+    const cookiesPath = path.join(__dirname, '../../cookies.json');
+    if (fs.existsSync(cookiesPath)) {
+      const content = fs.readFileSync(cookiesPath, 'utf8');
+      cookies = parseCookies(content);
+    }
+  } catch (e) {}
+
+  if (!cookies && process.env.YT_COOKIES) {
+    cookies = parseCookies(process.env.YT_COOKIES);
+  }
+
+  if (cookies && Array.isArray(cookies)) {
+    globalCookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+  } else {
+    globalCookieHeader = '';
+  }
+
+  return globalCookieHeader;
+}
+
 const {
   INNERTUBE_BASE_URL,
   INNERTUBE_API_KEY,
@@ -32,8 +108,10 @@ function buildRequestBody(overrides = {}) {
 async function request(endpoint, body, cookie = null) {
   const url = `${INNERTUBE_BASE_URL}/${endpoint}?key=${INNERTUBE_API_KEY}&prettyPrint=false`;
   const headers = { ...INNERTUBE_HEADERS };
-  if (cookie) {
-    headers['Cookie'] = cookie.replace(/^["']|["']$/g, '');
+  
+  const activeCookie = cookie || getGlobalCookieHeader();
+  if (activeCookie) {
+    headers['Cookie'] = activeCookie.replace(/^["']|["']$/g, '');
   }
   const { data } = await axios.post(url, body, {
     headers,
