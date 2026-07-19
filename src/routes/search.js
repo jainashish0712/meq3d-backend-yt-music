@@ -24,7 +24,10 @@ router.get('/', asyncHandler(async (req, res) => {
     throw createHttpError(400, `Invalid filter. Must be one of: ${validFilters.join(', ')}`);
   }
 
-  const rawResponse = await innertube.search(q.trim(), filter || null);
+  // Extract YouTube cookies from standard Cookie header or custom headers sent by the frontend
+  const clientCookie = req.headers.cookie || req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
+
+  const rawResponse = await innertube.search(q.trim(), filter || null, clientCookie);
   const results = parseSearchResponse(rawResponse);
 
   res.json({
