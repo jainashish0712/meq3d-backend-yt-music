@@ -36,7 +36,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
 
   const tempFilePath = path.join(tempDir, `${videoId}.m4a`);
   console.log(`[streamfile] Target temp file path: ${tempFilePath}`);
-  
+
   // Clean up any existing file
   if (fs.existsSync(tempFilePath)) {
     console.log(`[streamfile] Found existing file at ${tempFilePath}, unlinking...`);
@@ -88,6 +88,10 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       args.push('--cookies', tempCookiesFile);
     }
 
+    // Add cache directory in temp to cache player scripts and evaluation results
+    const cacheDir = path.join(tempDir, '.cache');
+    args.push('--cache-dir', cacheDir);
+
     // Add proxy option if configured in environment
     if (process.env.YT_PROXY) {
       const cleanProxy = process.env.YT_PROXY.replace(/^["']|["']$/g, '');
@@ -105,10 +109,10 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
 
     // Add extractor args option (useful for PO Token and client configuration)
     let extractorArgs = [];
-    
+
     // Default player client list to bypass checks (Smart TV / Creator APIs)
-    const playerClient = (process.env.YT_PLAYER_CLIENT || 'tv_downgraded,web_creator,mweb').replace(/^["']|["']$/g, '');
-    
+    const playerClient = (process.env.YT_PLAYER_CLIENT || 'web_music,mweb').replace(/^["']|["']$/g, '');
+
     // 1. If explicit PO Token environment variable is defined
     if (process.env.YT_PO_TOKEN) {
       const cleanPoToken = process.env.YT_PO_TOKEN.replace(/^["']|["']$/g, '');
@@ -116,13 +120,13 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     } else {
       extractorArgs.push(`youtube:player_client=${playerClient}`);
     }
-    
+
     // 2. If general/additional extractor arguments are defined
     if (process.env.YT_EXTRACTOR_ARGS) {
       const cleanExtArgs = process.env.YT_EXTRACTOR_ARGS.replace(/^["']|["']$/g, '');
       extractorArgs.push(cleanExtArgs);
     }
-    
+
     // If any extractor args were constructed, push them to yt-dlp arguments
     if (extractorArgs.length > 0) {
       const joinedArgs = extractorArgs.join(';');
@@ -143,7 +147,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       return new Promise((resolve, reject) => {
         console.log(`[streamfile] Spawning yt-dlp with arguments:`, ytDlpArgs);
         const child = spawn(ytDlpPath, ytDlpArgs);
-        
+
         let stdoutData = '';
         let stderrData = '';
 
@@ -181,8 +185,8 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     // Clean up cookies file immediately after attempt
     if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
       console.log(`[streamfile] Cleaning up temp cookies file: ${tempCookiesFile}`);
-      try { 
-        fs.unlinkSync(tempCookiesFile); 
+      try {
+        fs.unlinkSync(tempCookiesFile);
         console.log(`[streamfile] Temp cookies file deleted.`);
       } catch (e) {
         console.warn(`[streamfile] Failed to delete temp cookies file:`, e.message);
@@ -243,7 +247,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
 
   } catch (err) {
     console.error(`[streamfile] Error downloading/extracting audio for ${videoId}:`, err);
-    
+
     // Clean up cookies file if it wasn't cleaned up yet
     if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
       console.log(`[streamfile] Error fallback: Cleaning up temp cookies file: ${tempCookiesFile}`);
