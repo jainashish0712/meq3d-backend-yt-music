@@ -92,6 +92,9 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     const cacheDir = path.join(tempDir, '.cache');
     args.push('--cache-dir', cacheDir);
 
+    // Enable remote components to dynamically download signature challenge solvers
+    args.push('--remote-components', 'ejs:github');
+
     // Add proxy option if configured in environment
     if (process.env.YT_PROXY) {
       const cleanProxy = process.env.YT_PROXY.replace(/^["']|["']$/g, '');
@@ -111,7 +114,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     let extractorArgs = [];
 
     // Default player client list to bypass checks (Smart TV / Creator APIs)
-    const playerClient = (process.env.YT_PLAYER_CLIENT || 'web_music,mweb').replace(/^["']|["']$/g, '');
+    const playerClient = (process.env.YT_PLAYER_CLIENT || 'tv_downgraded').replace(/^["']|["']$/g, '');
 
     // 1. If explicit PO Token environment variable is defined
     if (process.env.YT_PO_TOKEN) {
