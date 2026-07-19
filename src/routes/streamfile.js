@@ -88,10 +88,6 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       args.push('--cookies', tempCookiesFile);
     }
 
-    // Add cache directory in temp to cache player scripts and evaluation results
-    const cacheDir = path.join(tempDir, '.cache');
-    args.push('--cache-dir', cacheDir);
-
     // Add proxy option if configured in environment
     if (process.env.YT_PROXY) {
       const cleanProxy = process.env.YT_PROXY.replace(/^["']|["']$/g, '');
@@ -111,7 +107,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     let extractorArgs = [];
 
     // Default player client list to bypass checks (Smart TV / Creator APIs)
-    const playerClient = (process.env.YT_PLAYER_CLIENT || 'web_music,mweb').replace(/^["']|["']$/g, '');
+    const playerClient = (process.env.YT_PLAYER_CLIENT || 'tv_downgraded,web_creator,mweb').replace(/^["']|["']$/g, '');
 
     // 1. If explicit PO Token environment variable is defined
     if (process.env.YT_PO_TOKEN) {
