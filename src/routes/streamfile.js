@@ -76,6 +76,37 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     console.log(`[streamfile] JS Runtime (node): ${process.execPath}`);
     args.push('--js-runtimes', `node:${process.execPath}`);
 
+    // Add client impersonation (requires curl-cffi)
+    console.log('[streamfile] Using TLS impersonation: safari');
+    args.push('--impersonate', 'safari');
+
+    // Add extractor args option (useful for PO Token and client configuration)
+    let extractorArgs = [];
+    
+    // Default player client to web_safari to bypass checks
+    const playerClient = (process.env.YT_PLAYER_CLIENT || 'web_safari').replace(/^["']|["']$/g, '');
+    
+    // 1. If explicit PO Token environment variable is defined
+    if (process.env.YT_PO_TOKEN) {
+      const cleanPoToken = process.env.YT_PO_TOKEN.replace(/^["']|["']$/g, '');
+      extractorArgs.push(`youtube:player_client=${playerClient};po_token=${cleanPoToken}`);
+    } else {
+      extractorArgs.push(`youtube:player_client=${playerClient}`);
+    }
+    
+    // 2. If general/additional extractor arguments are defined
+    if (process.env.YT_EXTRACTOR_ARGS) {
+      const cleanExtArgs = process.env.YT_EXTRACTOR_ARGS.replace(/^["']|["']$/g, '');
+      extractorArgs.push(cleanExtArgs);
+    }
+    
+    // If any extractor args were constructed, push them to yt-dlp arguments
+    if (extractorArgs.length > 0) {
+      const joinedArgs = extractorArgs.join(';');
+      console.log(`[streamfile] Using extractor-args: ${joinedArgs}`);
+      args.push('--extractor-args', joinedArgs);
+    }
+
     // Add other yt-dlp options
     args.push(
       '-f', 'bestaudio[ext=m4a][abr<=128]/bestaudio[ext=m4a]',

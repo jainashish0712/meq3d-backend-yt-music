@@ -8,11 +8,14 @@ const path = require('path');
 // Only run on non-Windows (e.g. Render / Linux) or when NODE_ENV is production
 if (os.platform() !== 'win32' || process.env.NODE_ENV === 'production') {
   const binDir = path.join(__dirname, '../bin');
+  const venvBinDir = path.join(__dirname, '../.venv/bin');
   const ytDlpPath = path.join(binDir, 'yt-dlp');
+  const ytDlpVenvPath = path.join(venvBinDir, 'yt-dlp');
   const ffmpegPath = path.join(binDir, 'ffmpeg');
 
   // Loop-prevention guard: skip if binaries are already installed
-  if (fs.existsSync(ytDlpPath) && fs.existsSync(ffmpegPath)) {
+  const ytDlpExists = fs.existsSync(ytDlpPath) || fs.existsSync(ytDlpVenvPath);
+  if (ytDlpExists && fs.existsSync(ffmpegPath)) {
     console.log('==> yt-dlp and ffmpeg binaries already exist. Skipping installation.');
     process.exit(0);
   }

@@ -6,15 +6,30 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
-// Automatically configure local bin path if it exists (useful for cloud platforms like Render/Railway)
+// Automatically configure local bin and venv bin paths if they exist
 const localBinPath = path.join(__dirname, '../bin');
+const venvBinPath = path.join(__dirname, '../.venv/bin');
+
 if (fs.existsSync(localBinPath)) {
   process.env.PATH = `${localBinPath}:${process.env.PATH}`;
-  const ytDlpLocal = path.join(localBinPath, 'yt-dlp');
-  if (fs.existsSync(ytDlpLocal) && !process.env.YT_DLP_PATH) {
-    process.env.YT_DLP_PATH = ytDlpLocal;
-    console.log(`[system] Auto-configured YT_DLP_PATH to: ${ytDlpLocal}`);
-  }
+}
+if (fs.existsSync(venvBinPath)) {
+  process.env.PATH = `${venvBinPath}:${process.env.PATH}`;
+}
+
+let foundYtDlp = null;
+const ytDlpLocal = path.join(localBinPath, 'yt-dlp');
+const ytDlpVenv = path.join(venvBinPath, 'yt-dlp');
+
+if (fs.existsSync(ytDlpLocal)) {
+  foundYtDlp = ytDlpLocal;
+} else if (fs.existsSync(ytDlpVenv)) {
+  foundYtDlp = ytDlpVenv;
+}
+
+if (foundYtDlp && !process.env.YT_DLP_PATH) {
+  process.env.YT_DLP_PATH = foundYtDlp;
+  console.log(`[system] Auto-configured YT_DLP_PATH to: ${foundYtDlp}`);
 }
 
 const express = require('express');
