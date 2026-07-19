@@ -92,9 +92,6 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     const cacheDir = path.join(tempDir, '.cache');
     args.push('--cache-dir', cacheDir);
 
-    // Enable remote components to dynamically download signature challenge solvers
-    args.push('--remote-components', 'ejs:github');
-
     // Add proxy option if configured in environment
     if (process.env.YT_PROXY) {
       const cleanProxy = process.env.YT_PROXY.replace(/^["']|["']$/g, '');
@@ -106,15 +103,15 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     console.log(`[streamfile] JS Runtime (node): ${process.execPath}`);
     args.push('--js-runtimes', `node:${process.execPath}`);
 
-    // Add client impersonation (requires curl-cffi) - skipped to prevent issues on basic environments
-    // console.log('[streamfile] Using TLS impersonation: safari');
-    // args.push('--impersonate', 'safari');
+    // Add client impersonation (requires curl-cffi)
+    console.log('[streamfile] Using TLS impersonation: safari');
+    args.push('--impersonate', 'safari');
 
     // Add extractor args option (useful for PO Token and client configuration)
     let extractorArgs = [];
 
-    // Default player client list to bypass checks (Smart TV / Creator APIs / Mobile)
-    const playerClient = (process.env.YT_PLAYER_CLIENT || 'android,ios').replace(/^["']|["']$/g, '');
+    // Default player client list to bypass checks (Smart TV / Creator APIs)
+    const playerClient = (process.env.YT_PLAYER_CLIENT || 'web_music,mweb').replace(/^["']|["']$/g, '');
 
     // 1. If explicit PO Token environment variable is defined
     if (process.env.YT_PO_TOKEN) {
@@ -143,7 +140,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       '--extract-audio',
       '--audio-format', 'm4a',
       '-o', tempFilePath,
-      `https://www.youtube.com/watch?v=${videoId}`
+      `https://music.youtube.com/watch?v=${videoId}`
     );
 
     const executeYtDlp = (ytDlpArgs) => {
