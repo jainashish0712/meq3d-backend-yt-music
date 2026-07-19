@@ -16,44 +16,38 @@ const router = Router();
 router.get('/:videoId', asyncHandler(async (req, res) => {
   const { videoId } = req.params;
 
-
-  console.log("20",);
+  console.log(`[stream route] Start: GET /api/stream/${videoId}`);
 
   if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    console.error(`[stream route] Invalid video ID: ${videoId}`);
     throw createHttpError(400, 'Invalid video ID. Must be an 11-character YouTube video ID.');
   }
 
-  // Extract cookies from request headers, fallback to local cookies.txt / cookies.json if present
-  let clientCookie = req.headers.cookie || req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
+  console.log(`[stream route] Validation passed for video ID: ${videoId}`);
+
+  // Extract cookies from custom headers, fallback to local cookies.txt / cookies.json if present
+  // Removing req.headers.cookie to avoid intercepting unrelated session cookies which would break the extractor
+  let clientCookie = req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
+
+  console.log(`[stream route] clientCookie from headers: ${!!clientCookie}`);
 
   if (!clientCookie) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const cookiesTxtPath = path.join(__dirname, '../../cookies.txt');
-      const cookiesJsonPath = path.join(__dirname, '../../cookies.json');
-      if (fs.existsSync(cookiesTxtPath)) {
-        clientCookie = fs.readFileSync(cookiesTxtPath, 'utf8');
-        console.log('[stream route] Read cookies.txt content');
-      } else if (fs.existsSync(cookiesJsonPath)) {
-        clientCookie = fs.readFileSync(cookiesJsonPath, 'utf8');
-        console.log('[stream route] Read cookies.json content:', clientCookie);
-      } else {
-        console.log('[stream route] cookies.txt or cookies.json not found');
-      }
-    } catch (e) {
-      console.warn('[stream route] Failed to read cookies.txt / cookies.json:', e.message);
-    }
+    console.log(`[stream route] No custom cookie header, falling back to streamExtractor's shared agent and cache`);
+  } else {
+    console.log(`[stream route] Using custom cookie from x-youtube-cookie headers`);
   }
 
   // Proxy mode: stream audio bytes through this server
   if (req.query.proxy === 'true') {
+    console.log(`[stream route] Proxy mode enabled for video ID: ${videoId}`);
     return proxyStream(videoId, res, clientCookie);
   }
 
+  console.log(`[stream route] Calling getStreamUrl for video ID: ${videoId}`);
   // Default: return the stream URL + metadata
   try {
     const streamData = await getStreamUrl(videoId, clientCookie);
+    console.log(`[stream route] Successfully extracted stream data for video ID: ${videoId}`);
     res.json({
       success: true,
       data: streamData,
