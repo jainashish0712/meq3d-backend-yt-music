@@ -48,6 +48,26 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     }
   }
 
+  // Extract YouTube cookies from standard Cookie header or custom headers, fallback to cookies.json
+  let clientCookie = req.headers.cookie || req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
+
+  if (!clientCookie) {
+    try {
+      const cookiesPath = path.join(__dirname, '../../cookies.json');
+      if (fs.existsSync(cookiesPath)) {
+        clientCookie = fs.readFileSync(cookiesPath, 'utf8');
+      }
+    } catch (e) {
+      console.warn('[streamfile] Failed to read cookies.json:', e.message);
+    }
+  }
+
+  if (clientCookie) {
+    console.log(`[streamfile] Cookies retrieved (length: ${clientCookie.length})`);
+  } else {
+    console.log('[streamfile] No cookies found in headers or cookies.json');
+  }
+
   // Determine yt-dlp path from environment
   let ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
   // Remove any surrounding quotes from the path
@@ -57,7 +77,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
   let tempCookiesFile = null;
   try {
     console.log(`[streamfile] Attempting to retrieve cookies file...`);
-    tempCookiesFile = getCookiesFilePath();
+    tempCookiesFile = getCookiesFilePath(clientCookie);
     console.log(`[streamfile] Cookies file path: ${tempCookiesFile}`);
 
     const args = [];
@@ -116,7 +136,7 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       `https://music.youtube.com/watch?v=${videoId}`
     );
 
-    const executeYtDlp = (ytDlpArgs, monitorOAuth = false) => {
+    const executeYtDlp = (ytDlpArgs) => {
       return new Promise((resolve, reject) => {
         console.log(`[streamfile] Spawning yt-dlp with arguments:`, ytDlpArgs);
         const child = spawn(ytDlpPath, ytDlpArgs);
@@ -128,26 +148,12 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
           const text = data.toString();
           stdoutData += text;
           console.log(`[streamfile] [yt-dlp stdout]: ${text.trim()}`);
-          
-          if (monitorOAuth && text.includes('google.com/device')) {
-            console.log('\n==================================================');
-            console.log('[OAUTH REQUIRED] YouTube requires authentication!');
-            console.log(text.trim());
-            console.log('==================================================\n');
-          }
         });
 
         child.stderr.on('data', (data) => {
           const text = data.toString();
           stderrData += text;
           console.warn(`[streamfile] [yt-dlp stderr]: ${text.trim()}`);
-          
-          if (monitorOAuth && text.includes('google.com/device')) {
-            console.log('\n==================================================');
-            console.log('[OAUTH REQUIRED] YouTube requires authentication!');
-            console.log(text.trim());
-            console.log('==================================================\n');
-          }
         });
 
         child.on('close', (code) => {
@@ -166,18 +172,10 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       });
     };
 
-    // First, run standard command
-    let commandFailed = false;
-    let errorMsg = '';
-    try {
-      await executeYtDlp(args, false);
-    } catch (err) {
-      commandFailed = true;
-      errorMsg = err.message;
-      console.warn(`[streamfile] Primary download failed: ${errorMsg}`);
-    }
+    // Run command
+    await executeYtDlp(args);
 
-    // Clean up cookies file immediately after primary attempt
+    // Clean up cookies file immediately after attempt
     if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
       console.log(`[streamfile] Cleaning up temp cookies file: ${tempCookiesFile}`);
       try { 
@@ -187,38 +185,6 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
         console.warn(`[streamfile] Failed to delete temp cookies file:`, e.message);
       }
       tempCookiesFile = null;
-    }
-
-    // Fallback: If primary failed due to rate limits or bot checks, try OAuth2
-    if (commandFailed) {
-      const isBotBlock = errorMsg.includes('confirm') || 
-                         errorMsg.includes('429') || 
-                         errorMsg.includes('Too Many') || 
-                         errorMsg.includes('Sign in');
-                         
-      if (isBotBlock) {
-        console.log(`[streamfile] Primary download failed due to bot block. Attempting OAuth2 fallback...`);
-        const fallbackArgs = [...args];
-        
-        // Remove --cookies parameter if present (since oauth2 is instead of passing cookies)
-        const cookiesIndex = fallbackArgs.indexOf('--cookies');
-        if (cookiesIndex > -1) {
-          fallbackArgs.splice(cookiesIndex, 2);
-        }
-
-        // Add oauth2 options
-        fallbackArgs.push('--username', 'oauth2', '--password', '');
-
-        // Add cache directory in temp to keep token cached for the container's lifetime
-        const cacheDir = path.join(tempDir, '.cache');
-        fallbackArgs.push('--cache-dir', cacheDir);
-
-        // Run the fallback with OAuth device verification monitoring
-        await executeYtDlp(fallbackArgs, true);
-      } else {
-        // Re-throw the original non-bot block error
-        throw new Error(errorMsg);
-      }
     }
 
     // Robust file path detection

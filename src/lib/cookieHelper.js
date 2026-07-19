@@ -49,22 +49,29 @@ function parseCookies(content) {
 }
 
 /**
- * Loads JSON cookies from cookies.json or YT_COOKIES env var,
+ * Loads cookies from customCookie, cookies.json, or YT_COOKIES env var,
  * converts them to Netscape cookies format, and saves them to a temporary file.
  * Returns the path to the temporary cookies file, or null if no cookies are configured.
+ * @param {string} [customCookie] — custom cookies to use for this request
  */
-function getCookiesFilePath() {
+function getCookiesFilePath(customCookie = null) {
   let cookies = null;
 
+  if (customCookie) {
+    cookies = parseCookies(customCookie);
+  }
+
   // 1. Try reading cookies.json from project root
-  try {
-    const cookiesPath = path.join(__dirname, '../../cookies.json');
-    if (fs.existsSync(cookiesPath)) {
-      const fileContent = fs.readFileSync(cookiesPath, 'utf8');
-      cookies = parseCookies(fileContent);
+  if (!cookies) {
+    try {
+      const cookiesPath = path.join(__dirname, '../../cookies.json');
+      if (fs.existsSync(cookiesPath)) {
+        const fileContent = fs.readFileSync(cookiesPath, 'utf8');
+        cookies = parseCookies(fileContent);
+      }
+    } catch (e) {
+      // Silent fail
     }
-  } catch (e) {
-    // Silent fail
   }
 
   // 2. Fallback to YT_COOKIES env var
