@@ -219,14 +219,42 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
 
   console.log(`[stream route] Validation passed for video ID: ${videoId}`);
 
+  // Check cache first if no custom headers are provided
+  const isCustomCookie = !!(req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie']);
+  const cacheKey = `stream:${videoId}`;
+
+  if (!isCustomCookie) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      console.log(`[stream route] Cache hit for video ID: ${videoId}`);
+      return res.json({
+        success: true,
+        data: cached,
+        error: null,
+      });
+    }
+  }
+
   // Extract cookies from custom headers, fallback to local cookies.txt / cookies.json if present
   // Removing req.headers.cookie to avoid intercepting unrelated session cookies which would break the extractor
   let clientCookie = req.headers['x-youtube-cookies'] || req.headers['x-youtube-cookie'] || null;
 
-  console.log(`[stream route] clientCookie from headers: ${!!clientCookie}`);
-
   if (!clientCookie) {
-    console.log(`[stream route] No custom cookie header, falling back to streamExtractor's shared agent and cache`);
+    try {
+      const cookiesTxtPath = path.join(__dirname, '../../cookies.txt');
+      const cookiesJsonPath = path.join(__dirname, '../../cookies.json');
+      if (fs.existsSync(cookiesTxtPath)) {
+        clientCookie = fs.readFileSync(cookiesTxtPath, 'utf8');
+        console.log('[stream route] Loaded fallback cookies.txt');
+      } else if (fs.existsSync(cookiesJsonPath)) {
+        clientCookie = fs.readFileSync(cookiesJsonPath, 'utf8');
+        console.log('[stream route] Loaded fallback cookies.json');
+      } else {
+        console.log('[stream route] No fallback cookie files found');
+      }
+    } catch (e) {
+      console.warn('[stream route] Failed to read fallback cookies:', e.message);
+    }
   } else {
     console.log(`[stream route] Using custom cookie from x-youtube-cookie headers`);
   }
@@ -242,6 +270,12 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
   try {
     const streamData = await getStreamUrl(videoId, clientCookie);
     console.log(`[stream route] Successfully extracted stream data for video ID: ${videoId}`);
+    
+    if (!isCustomCookie) {
+      cache.set(cacheKey, streamData, DEFAULT_CACHE_TTL);
+      console.log(`[stream route] Cached stream data for video ID: ${videoId}`);
+    }
+
     res.json({
       success: true,
       data: streamData,
