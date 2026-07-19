@@ -20,6 +20,51 @@ const path = require('path');
  */
 let ytdlAgent = null;
 
+/**
+ * Parses a cookie string or JSON array into an array of cookie objects.
+ * Supports:
+ * 1. JSON array format: [{"name": "foo", "value": "bar"}, ...]
+ * 2. Raw Cookie Header format: "name1=value1; name2=value2"
+ */
+function parseCookies(content) {
+  if (!content) return null;
+  const trimmed = content.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (e) {
+      console.warn('[cookies] Failed to parse cookies as JSON array:', e.message);
+    }
+  }
+
+  // Fallback: parse as standard raw cookie string
+  try {
+    const cookies = [];
+    const pairs = trimmed.split(';');
+    for (let pair of pairs) {
+      const trimmedPair = pair.trim();
+      if (!trimmedPair) continue;
+      const index = trimmedPair.indexOf('=');
+      if (index === -1) continue;
+      const name = trimmedPair.substring(0, index).trim();
+      const value = trimmedPair.substring(index + 1).trim();
+      if (name) {
+        cookies.push({
+          name,
+          value,
+          domain: '.youtube.com',
+          path: '/',
+          secure: true
+        });
+      }
+    }
+    return cookies.length > 0 ? cookies : null;
+  } catch (e) {
+    console.warn('[cookies] Failed to parse raw cookie string:', e.message);
+    return null;
+  }
+}
+
 function getAgent() {
   if (ytdlAgent) return ytdlAgent;
 
@@ -29,7 +74,7 @@ function getAgent() {
     const cookiesPath = path.join(__dirname, '../../cookies.json');
     if (fs.existsSync(cookiesPath)) {
       const fileContent = fs.readFileSync(cookiesPath, 'utf8');
-      cookies = JSON.parse(fileContent);
+      cookies = parseCookies(fileContent);
       console.log('[stream] Loaded cookies from cookies.json');
     }
   } catch (e) {
@@ -41,7 +86,7 @@ function getAgent() {
     const cookiesEnv = process.env.YT_COOKIES;
     if (cookiesEnv) {
       try {
-        cookies = JSON.parse(cookiesEnv);
+        cookies = parseCookies(cookiesEnv);
         console.log('[stream] Loaded cookies from YT_COOKIES env var');
       } catch (e) {
         console.warn('[stream] Failed to parse YT_COOKIES:', e.message);

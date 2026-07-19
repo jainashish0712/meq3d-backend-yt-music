@@ -9,6 +9,11 @@ echo "==> Setting up python virtual environment..."
 python3 -m venv .venv
 .venv/bin/pip install -U pip
 .venv/bin/pip install -U --pre "yt-dlp[default,curl-cffi]"
+.venv/bin/pip install bgutil-ytdlp-pot-provider
+
+echo "==> Purging old challenge caches..."
+rm -rf temp/.cache bin/.cache
+.venv/bin/yt-dlp --rm-cache-dir
 
 echo "==> Downloading ffmpeg static binaries..."
 curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz

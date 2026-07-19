@@ -83,8 +83,8 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     // Add extractor args option (useful for PO Token and client configuration)
     let extractorArgs = [];
     
-    // Default player client to web_safari to bypass checks
-    const playerClient = (process.env.YT_PLAYER_CLIENT || 'web_safari').replace(/^["']|["']$/g, '');
+    // Default player client list to bypass checks (Smart TV / Creator APIs)
+    const playerClient = (process.env.YT_PLAYER_CLIENT || 'tv_downgraded,web_creator,mweb').replace(/^["']|["']$/g, '');
     
     // 1. If explicit PO Token environment variable is defined
     if (process.env.YT_PO_TOKEN) {
@@ -116,34 +116,68 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
       `https://music.youtube.com/watch?v=${videoId}`
     );
 
-    console.log(`[streamfile] Spawning yt-dlp with arguments:`, args);
+    const executeYtDlp = (ytDlpArgs, monitorOAuth = false) => {
+      return new Promise((resolve, reject) => {
+        console.log(`[streamfile] Spawning yt-dlp with arguments:`, ytDlpArgs);
+        const child = spawn(ytDlpPath, ytDlpArgs);
+        
+        let stdoutData = '';
+        let stderrData = '';
 
-    const child = spawn(ytDlpPath, args);
+        child.stdout.on('data', (data) => {
+          const text = data.toString();
+          stdoutData += text;
+          console.log(`[streamfile] [yt-dlp stdout]: ${text.trim()}`);
+          
+          if (monitorOAuth && text.includes('google.com/device')) {
+            console.log('\n==================================================');
+            console.log('[OAUTH REQUIRED] YouTube requires authentication!');
+            console.log(text.trim());
+            console.log('==================================================\n');
+          }
+        });
 
-    child.stdout.on('data', (data) => {
-      console.log(`[streamfile] [yt-dlp stdout]: ${data.toString().trim()}`);
-    });
+        child.stderr.on('data', (data) => {
+          const text = data.toString();
+          stderrData += text;
+          console.warn(`[streamfile] [yt-dlp stderr]: ${text.trim()}`);
+          
+          if (monitorOAuth && text.includes('google.com/device')) {
+            console.log('\n==================================================');
+            console.log('[OAUTH REQUIRED] YouTube requires authentication!');
+            console.log(text.trim());
+            console.log('==================================================\n');
+          }
+        });
 
-    child.stderr.on('data', (data) => {
-      console.warn(`[streamfile] [yt-dlp stderr]: ${data.toString().trim()}`);
-    });
+        child.on('close', (code) => {
+          console.log(`[streamfile] yt-dlp exited with code: ${code}`);
+          if (code === 0) {
+            resolve(stdoutData);
+          } else {
+            reject(new Error(`yt-dlp exited with code ${code}. Stderr: ${stderrData || stdoutData}`));
+          }
+        });
 
-    await new Promise((resolve, reject) => {
-      child.on('close', (code) => {
-        console.log(`[streamfile] yt-dlp exited with code: ${code}`);
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`yt-dlp exited with code ${code}`));
-        }
+        child.on('error', (err) => {
+          console.error(`[streamfile] yt-dlp spawn/process error:`, err);
+          reject(err);
+        });
       });
-      child.on('error', (err) => {
-        console.error(`[streamfile] yt-dlp spawn/process error:`, err);
-        reject(err);
-      });
-    });
+    };
 
-    // Clean up cookies file immediately after yt-dlp finishes
+    // First, run standard command
+    let commandFailed = false;
+    let errorMsg = '';
+    try {
+      await executeYtDlp(args, false);
+    } catch (err) {
+      commandFailed = true;
+      errorMsg = err.message;
+      console.warn(`[streamfile] Primary download failed: ${errorMsg}`);
+    }
+
+    // Clean up cookies file immediately after primary attempt
     if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
       console.log(`[streamfile] Cleaning up temp cookies file: ${tempCookiesFile}`);
       try { 
@@ -153,6 +187,38 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
         console.warn(`[streamfile] Failed to delete temp cookies file:`, e.message);
       }
       tempCookiesFile = null;
+    }
+
+    // Fallback: If primary failed due to rate limits or bot checks, try OAuth2
+    if (commandFailed) {
+      const isBotBlock = errorMsg.includes('confirm') || 
+                         errorMsg.includes('429') || 
+                         errorMsg.includes('Too Many') || 
+                         errorMsg.includes('Sign in');
+                         
+      if (isBotBlock) {
+        console.log(`[streamfile] Primary download failed due to bot block. Attempting OAuth2 fallback...`);
+        const fallbackArgs = [...args];
+        
+        // Remove --cookies parameter if present (since oauth2 is instead of passing cookies)
+        const cookiesIndex = fallbackArgs.indexOf('--cookies');
+        if (cookiesIndex > -1) {
+          fallbackArgs.splice(cookiesIndex, 2);
+        }
+
+        // Add oauth2 options
+        fallbackArgs.push('--username', 'oauth2', '--password', '');
+
+        // Add cache directory in temp to keep token cached for the container's lifetime
+        const cacheDir = path.join(tempDir, '.cache');
+        fallbackArgs.push('--cache-dir', cacheDir);
+
+        // Run the fallback with OAuth device verification monitoring
+        await executeYtDlp(fallbackArgs, true);
+      } else {
+        // Re-throw the original non-bot block error
+        throw new Error(errorMsg);
+      }
     }
 
     // Robust file path detection
