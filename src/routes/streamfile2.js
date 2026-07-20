@@ -139,7 +139,8 @@ if __name__ == '__main__':
         args.push('--extractor-args', 'youtube:player_client=android_vr');
       }
 
-      args.push('--js-runtimes', `node:${process.execPath}`);
+      // Restrict JS runtimes strictly to Node from system PATH (avoids slow Deno compilation on cloud environments)
+      args.push('--js-runtimes', 'node');
 
       args.push(
         '-f', 'bestaudio[ext=m4a][abr<=128]/bestaudio[ext=m4a]',
@@ -201,6 +202,25 @@ if __name__ == '__main__':
 
   // Wrap the download flow in a promise so concurrent requests can await it
   const downloadPromise = new Promise(async (resolve, reject) => {
+    const isRender = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
+    if (isRender) {
+      console.log(`[streamfile2] [${videoId}] Render.com environment detected. Skipping anonymous fast-path to prevent bot-detection failure.`);
+      try {
+        const ytDlpTime = await runDownloadTask(true);
+        resolve({ finalPath: tempFilePath, ytDlpTime });
+      } catch (fallbackErr) {
+        reject(fallbackErr);
+      } finally {
+        if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
+          try {
+            fs.unlinkSync(tempCookiesFile);
+            console.log(`[streamfile2] [${videoId}] Cleaned up temp cookies file.`);
+          } catch (e) {}
+        }
+      }
+      return;
+    }
+
     try {
       // 1. Try first anonymously using android_vr client (lightning fast, no cookies, no sleep wait)
       const ytDlpTime = await runDownloadTask(false);
