@@ -60,6 +60,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 const searchRoutes = require('./routes/search');
 const streamRoutes = require('./routes/stream');
 const streamFileRoutes = require('./routes/streamfile');
+const streamFile2Routes = require('./routes/streamfile2');
 const homeRoutes = require('./routes/home');
 const albumRoutes = require('./routes/album');
 const artistRoutes = require('./routes/artist');
@@ -114,6 +115,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/search', searchRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/streamfile', streamFileRoutes);
+app.use('/api/streamfile2', streamFile2Routes);
 app.use('/api/home', homeRoutes);
 app.use('/api/album', albumRoutes);
 app.use('/api/artist', artistRoutes);
@@ -135,12 +137,11 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // ─── Start Server ─────────────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[system] Server successfully bound to 0.0.0.0:${PORT}`);
+app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════════════╗
   ║   YouTube Music Backend API                      ║
-  ║   Running on http://0.0.0.0:${PORT}                 ║
+  ║   Running on http://localhost:${PORT}               ║
   ╠══════════════════════════════════════════════════╣
   ║   Endpoints:                                     ║
   ║   GET /api/health          Health check           ║

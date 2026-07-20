@@ -99,36 +99,36 @@ router.get('/:videoId', asyncHandler(async (req, res) => {
     console.log(`[streamfile] JS Runtime (node): ${process.execPath}`);
     args.push('--js-runtimes', `node:${process.execPath}`);
 
-    // Add client impersonation (requires curl-cffi)
-    console.log('[streamfile] Using TLS impersonation: safari');
-    args.push('--impersonate', 'safari');
+    // // Add client impersonation (requires curl-cffi)
+    // console.log('[streamfile] Using TLS impersonation: safari');
+    // args.push('--impersonate', 'safari');
 
-    // Add extractor args option (useful for PO Token and client configuration)
-    let extractorArgs = [];
+    // // Add extractor args option (useful for PO Token and client configuration)
+    // let extractorArgs = [];
 
-    // Default player client list to bypass checks (Smart TV / Creator APIs)
-    const playerClient = (process.env.YT_PLAYER_CLIENT || 'tv_downgraded,web_creator,mweb').replace(/^["']|["']$/g, '');
+    // // Default player client list to bypass checks (Smart TV / Creator APIs)
+    // const playerClient = (process.env.YT_PLAYER_CLIENT || 'tv_downgraded,web_creator,mweb').replace(/^["']|["']$/g, '');
 
-    // 1. If explicit PO Token environment variable is defined
-    if (process.env.YT_PO_TOKEN) {
-      const cleanPoToken = process.env.YT_PO_TOKEN.replace(/^["']|["']$/g, '');
-      extractorArgs.push(`youtube:player_client=${playerClient};po_token=${cleanPoToken}`);
-    } else {
-      extractorArgs.push(`youtube:player_client=${playerClient}`);
-    }
+    // // 1. If explicit PO Token environment variable is defined
+    // if (process.env.YT_PO_TOKEN) {
+    //   const cleanPoToken = process.env.YT_PO_TOKEN.replace(/^["']|["']$/g, '');
+    //   extractorArgs.push(`youtube:player_client=${playerClient};po_token=${cleanPoToken}`);
+    // } else {
+    //   extractorArgs.push(`youtube:player_client=${playerClient}`);
+    // }
 
-    // 2. If general/additional extractor arguments are defined
-    if (process.env.YT_EXTRACTOR_ARGS) {
-      const cleanExtArgs = process.env.YT_EXTRACTOR_ARGS.replace(/^["']|["']$/g, '');
-      extractorArgs.push(cleanExtArgs);
-    }
+    // // 2. If general/additional extractor arguments are defined
+    // if (process.env.YT_EXTRACTOR_ARGS) {
+    //   const cleanExtArgs = process.env.YT_EXTRACTOR_ARGS.replace(/^["']|["']$/g, '');
+    //   extractorArgs.push(cleanExtArgs);
+    // }
 
-    // If any extractor args were constructed, push them to yt-dlp arguments
-    if (extractorArgs.length > 0) {
-      const joinedArgs = extractorArgs.join(';');
-      console.log(`[streamfile] Using extractor-args: ${joinedArgs}`);
-      args.push('--extractor-args', joinedArgs);
-    }
+    // // If any extractor args were constructed, push them to yt-dlp arguments
+    // if (extractorArgs.length > 0) {
+    //   const joinedArgs = extractorArgs.join(';');
+    //   console.log(`[streamfile] Using extractor-args: ${joinedArgs}`);
+    //   args.push('--extractor-args', joinedArgs);
+    // }
 
     // Add other yt-dlp options
     args.push(
