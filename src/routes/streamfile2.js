@@ -117,7 +117,7 @@ if __name__ == '__main__':
     } catch (e) {}
   }
 
-  const runDownloadTask = (useCookies) => {
+  const runDownloadTask = (useCookies, registerChild) => {
     return new Promise((resolve, reject) => {
       const args = [];
       if (useCookies && tempCookiesFile) {
@@ -132,8 +132,8 @@ if __name__ == '__main__':
       args.push('--remote-components', 'ejs:github');
 
       if (useCookies) {
-        // Fallback uses web_embedded with sleep bypass wrapper
-        args.push('--extractor-args', 'youtube:playback_wait=0;player_client=web_embedded');
+        // Fallback uses web_embedded with sleep bypass wrapper and skips webpage download to optimize speed
+        args.push('--extractor-args', 'youtube:playback_wait=0;player_client=web_embedded;player_skip=webpage');
       } else {
         // Primary run uses android_vr which does not require cookies/PO token/sleep wait
         args.push('--extractor-args', 'youtube:player_client=android_vr');
@@ -156,6 +156,10 @@ if __name__ == '__main__':
       console.log(`[streamfile2] [${videoId}] Spawning yt-dlp (cookies=${useCookies})...`);
       const ytDlpStart = Date.now();
       const child = spawn(bin, runArgs);
+
+      if (registerChild) {
+        registerChild(child);
+      }
 
       let stdoutRemainder = '';
       child.stdout.on('data', (data) => {
@@ -202,47 +206,34 @@ if __name__ == '__main__':
 
   // Wrap the download flow in a promise so concurrent requests can await it
   const downloadPromise = new Promise(async (resolve, reject) => {
-    const isRender = process.env.RENDER === 'true' || !!process.env.RENDER_SERVICE_ID;
-    if (isRender) {
-      console.log(`[streamfile2] [${videoId}] Render.com environment detected. Skipping anonymous fast-path to prevent bot-detection failure.`);
-      try {
-        const ytDlpTime = await runDownloadTask(true);
-        resolve({ finalPath: tempFilePath, ytDlpTime });
-      } catch (fallbackErr) {
-        reject(fallbackErr);
-      } finally {
-        if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
-          try {
-            fs.unlinkSync(tempCookiesFile);
-            console.log(`[streamfile2] [${videoId}] Cleaned up temp cookies file.`);
-          } catch (e) {}
-        }
-      }
-      return;
-    }
+    let resolved = false;
+    let errors = [];
+    const activeProcesses = [];
 
-    try {
-      // 1. Try first anonymously using android_vr client (lightning fast, no cookies, no sleep wait)
-      const ytDlpTime = await runDownloadTask(false);
-      resolve({ finalPath: tempFilePath, ytDlpTime });
-    } catch (err) {
-      console.warn(`[streamfile2] [${videoId}] Primary anonymous download failed. Retrying with cookies fallback...`, err.message);
-      try {
-        // 2. If it fails (e.g. age-restricted song), fall back to cookies + web_embedded with sleep bypass wrapper
-        const ytDlpTime = await runDownloadTask(true);
-        resolve({ finalPath: tempFilePath, ytDlpTime });
-      } catch (fallbackErr) {
-        reject(fallbackErr);
+    const handleSuccess = (result) => {
+      if (resolved) return;
+      resolved = true;
+      activeProcesses.forEach(child => {
+        try { child.kill('SIGKILL'); } catch (e) {}
+      });
+      resolve(result);
+    };
+
+    const handleFailure = (err) => {
+      errors.push(err);
+      if (errors.length === 2 && !resolved) {
+        reject(new Error(`Both download runs failed: ${errors.map(e => e.message).join('; ')}`));
       }
-    } finally {
-      // Clean up temporary cookies file immediately
-      if (tempCookiesFile && fs.existsSync(tempCookiesFile)) {
-        try {
-          fs.unlinkSync(tempCookiesFile);
-          console.log(`[streamfile2] [${videoId}] Cleaned up temp cookies file.`);
-        } catch (e) {}
-      }
-    }
+    };
+
+    // Run both tasks concurrently and race them
+    runDownloadTask(false, (child) => activeProcesses.push(child))
+      .then(ytDlpTime => handleSuccess({ finalPath: tempFilePath, ytDlpTime }))
+      .catch(handleFailure);
+
+    runDownloadTask(true, (child) => activeProcesses.push(child))
+      .then(ytDlpTime => handleSuccess({ finalPath: tempFilePath, ytDlpTime }))
+      .catch(handleFailure);
   });
 
   activeDownloads.set(videoId, downloadPromise);
