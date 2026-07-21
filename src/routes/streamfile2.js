@@ -16,7 +16,7 @@ const activeDownloads = new Map();
  */
 function serveDownloadedFile(finalPath, videoId, res, startTime, ytDlpTime) {
   console.log(`[streamfile2] [${videoId}] Initiating stream response for path: ${finalPath}`);
-  
+
   // Set the custom header representing the yt-dlp task duration
   if (ytDlpTime !== undefined) {
     res.set('X-Ytdlp-Time', ytDlpTime.toString());
@@ -27,7 +27,7 @@ function serveDownloadedFile(finalPath, videoId, res, startTime, ytDlpTime) {
     const downloadTime = Date.now() - downloadStart;
     console.log(`[streamfile2] [${videoId}] res.sendFile callback completed in ${downloadTime}ms. Error: ${err ? err.message : 'none'}`);
     console.log(`[streamfile2] [${videoId}] Total request duration: ${Date.now() - startTime}ms`);
-    
+
     // Register delayed cleanup instead of unlinking immediately
     // This allows browser Range requests/retries to hit the disk cache instantly
     setTimeout(() => {
@@ -227,7 +227,7 @@ if __name__ == '__main__':
     };
 
     // Run both tasks concurrently and race them
-    runDownloadTask(false, (child) => activeProcesses.push(child))
+    runDownloadTask(true, (child) => activeProcesses.push(child))
       .then(ytDlpTime => handleSuccess({ finalPath: tempFilePath, ytDlpTime }))
       .catch(handleFailure);
 
