@@ -55,11 +55,13 @@ router.get('/:videoId', async (req, res) => {
     fs.mkdirSync(tempDir, { recursive: true });
   }
 
+  // 1. If the file already exists on disk and is not actively downloading, serve it directly
   if (fs.existsSync(tempFilePath) && !activeDownloads.has(videoId)) {
     console.log(`[streamfile2] [${videoId}] Completed file found at ${tempFilePath}. Serving directly.`);
     return serveDownloadedFile(tempFilePath, videoId, res, startTime, 0);
   }
 
+  // 2. If download is already in progress, wait for it and serve
   if (activeDownloads.has(videoId)) {
     console.log(`[streamfile2] [${videoId}] Download already in progress. Waiting...`);
     try {
@@ -118,7 +120,6 @@ if __name__ == '__main__':
       args.push('--cookies', tempCookiesFile);
     }
 
-    // Set a persistent cache directory so it doesn't re-download player files
     const cacheFolder = path.join(__dirname, '../../yt_cache');
     if (!fs.existsSync(cacheFolder)) fs.mkdirSync(cacheFolder, { recursive: true });
 
@@ -128,8 +129,11 @@ if __name__ == '__main__':
     args.push('--no-check-certificate');
     args.push('--remote-components', 'ejs:github');
 
-    // Added 'js' and 'configs' to player_skip to completely bypass JS challenges and extra downloads
-    args.push('--extractor-args', 'youtube:playback_wait=0;player_client=web_embedded;player_skip=webpage,configs,js');
+    // Skip webpage, but leave configs and js so YouTube doesn't throw Error 152
+    args.push('--extractor-args', 'youtube:playback_wait=0;player_client=web_embedded;player_skip=webpage');
+
+    // Restrict JS runtimes strictly to Node from system PATH to bypass slow Deno compilation
+    args.push('--js-runtimes', 'node');
 
     args.push(
       '-f', 'bestaudio[ext=m4a][abr<=128]/bestaudio[ext=m4a]',
