@@ -55,13 +55,11 @@ router.get('/:videoId', async (req, res) => {
     fs.mkdirSync(tempDir, { recursive: true });
   }
 
-  // 1. If the file already exists on disk and is not actively downloading, serve it directly
   if (fs.existsSync(tempFilePath) && !activeDownloads.has(videoId)) {
     console.log(`[streamfile2] [${videoId}] Completed file found at ${tempFilePath}. Serving directly.`);
     return serveDownloadedFile(tempFilePath, videoId, res, startTime, 0);
   }
 
-  // 2. If download is already in progress, wait for it and serve
   if (activeDownloads.has(videoId)) {
     console.log(`[streamfile2] [${videoId}] Download already in progress. Waiting...`);
     try {
@@ -76,10 +74,8 @@ router.get('/:videoId', async (req, res) => {
     }
   }
 
-  // Get cookies file path dynamically from standard config
   const tempCookiesFile = getCookiesFilePath();
 
-  // Create Python wrapper dynamically for bypassing sleep in fallback mode
   const wrapperPath = path.join(tempDir, 'yt_dlp_wrapper.py');
   if (!fs.existsSync(wrapperPath)) {
     const wrapperCode = `
@@ -103,7 +99,6 @@ if __name__ == '__main__':
     fs.writeFileSync(wrapperPath, wrapperCode.trim(), 'utf8');
   }
 
-  // Find Python bin matching current execution environment path
   let pythonBin = process.platform === 'win32' ? 'python' : 'python3';
   if (process.env.YT_DLP_PATH) {
     try {
@@ -117,123 +112,79 @@ if __name__ == '__main__':
     } catch (e) {}
   }
 
-  const runDownloadTask = (useCookies, registerChild) => {
-    return new Promise((resolve, reject) => {
-      const args = [];
-      if (useCookies && tempCookiesFile) {
-        args.push('--cookies', tempCookiesFile);
-      }
+  const downloadPromise = new Promise((resolve, reject) => {
+    const args = [];
+    if (tempCookiesFile) {
+      args.push('--cookies', tempCookiesFile);
+    }
 
-      const cacheDir = path.join(tempDir, '.cache');
-      args.push('--cache-dir', cacheDir);
-      args.push('--no-plugin-dirs');
-      args.push('--no-playlist');
-      args.push('--no-check-certificate');
-      args.push('--remote-components', 'ejs:github');
+    // Set a persistent cache directory so it doesn't re-download player files
+    const cacheFolder = path.join(__dirname, '../../yt_cache');
+    if (!fs.existsSync(cacheFolder)) fs.mkdirSync(cacheFolder, { recursive: true });
 
-      if (useCookies) {
-        // Fallback uses web_embedded with sleep bypass wrapper and skips webpage download to optimize speed
-        args.push('--extractor-args', 'youtube:playback_wait=0;player_client=web_embedded;player_skip=webpage');
-      } else {
-        // Primary run uses android_vr which does not require cookies/PO token/sleep wait
-        args.push('--extractor-args', 'youtube:player_client=android_vr');
-      }
+    args.push('--cache-dir', cacheFolder);
+    args.push('--no-plugin-dirs');
+    args.push('--no-playlist');
+    args.push('--no-check-certificate');
+    args.push('--remote-components', 'ejs:github');
 
-      // Restrict JS runtimes strictly to Node from system PATH (avoids slow Deno compilation on cloud environments)
-      args.push('--js-runtimes', 'node');
+    // Added 'js' and 'configs' to player_skip to completely bypass JS challenges and extra downloads
+    args.push('--extractor-args', 'youtube:playback_wait=0;player_client=web_embedded;player_skip=webpage,configs,js');
 
-      args.push(
-        '-f', 'bestaudio[ext=m4a][abr<=128]/bestaudio[ext=m4a]',
-        '--extract-audio',
-        '--audio-format', 'm4a',
-        '-o', tempFilePath,
-        `https://www.youtube.com/watch?v=${videoId}`
-      );
+    args.push(
+      '-f', 'bestaudio[ext=m4a][abr<=128]/bestaudio[ext=m4a]',
+      '--extract-audio',
+      '--audio-format', 'm4a',
+      '-o', tempFilePath,
+      `https://www.youtube.com/watch?v=${videoId}`
+    );
 
-      const bin = useCookies ? pythonBin : (process.env.YT_DLP_PATH || 'yt-dlp');
-      const runArgs = useCookies ? [wrapperPath, ...args] : args;
+    const runArgs = [wrapperPath, ...args];
 
-      console.log(`[streamfile2] [${videoId}] Spawning yt-dlp (cookies=${useCookies})...`);
-      const ytDlpStart = Date.now();
-      const child = spawn(bin, runArgs);
+    console.log(`[streamfile2] [${videoId}] Spawning yt-dlp...`);
+    const ytDlpStart = Date.now();
+    const child = spawn(pythonBin, runArgs);
 
-      if (registerChild) {
-        registerChild(child);
-      }
-
-      let stdoutRemainder = '';
-      child.stdout.on('data', (data) => {
-        stdoutRemainder += data.toString();
-        const lines = stdoutRemainder.split(/[\r\n]+/);
-        stdoutRemainder = lines.pop();
-        for (const line of lines) {
-          if (line.trim()) {
-            console.log(`[streamfile2] [${videoId}] [yt-dlp stdout] [+${Date.now() - ytDlpStart}ms] ${line.trim()}`);
-          }
+    let stdoutRemainder = '';
+    child.stdout.on('data', (data) => {
+      stdoutRemainder += data.toString();
+      const lines = stdoutRemainder.split(/[\r\n]+/);
+      stdoutRemainder = lines.pop();
+      for (const line of lines) {
+        if (line.trim()) {
+          console.log(`[streamfile2] [${videoId}] [yt-dlp stdout] [+${Date.now() - ytDlpStart}ms] ${line.trim()}`);
         }
-      });
-
-      let stderrRemainder = '';
-      child.stderr.on('data', (data) => {
-        stderrRemainder += data.toString();
-        const lines = stderrRemainder.split(/[\r\n]+/);
-        stderrRemainder = lines.pop();
-        for (const line of lines) {
-          if (line.trim()) {
-            console.log(`[streamfile2] [${videoId}] [yt-dlp stderr] [+${Date.now() - ytDlpStart}ms] ${line.trim()}`);
-          }
-        }
-      });
-
-      child.on('close', (code) => {
-        const ytDlpTime = Date.now() - ytDlpStart;
-        console.log(`[streamfile2] [${videoId}] yt-dlp (cookies=${useCookies}) finished in ${ytDlpTime}ms with exit code: ${code}`);
-
-        if (code === 0 && fs.existsSync(tempFilePath)) {
-          resolve(ytDlpTime);
-        } else {
-          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) {}
-          reject(new Error(`yt-dlp failed with code ${code}`));
-        }
-      });
-
-      child.on('error', (err) => {
-        try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) {}
-        reject(err);
-      });
+      }
     });
-  };
 
-  // Wrap the download flow in a promise so concurrent requests can await it
-  const downloadPromise = new Promise(async (resolve, reject) => {
-    let resolved = false;
-    let errors = [];
-    const activeProcesses = [];
-
-    const handleSuccess = (result) => {
-      if (resolved) return;
-      resolved = true;
-      activeProcesses.forEach(child => {
-        try { child.kill('SIGKILL'); } catch (e) {}
-      });
-      resolve(result);
-    };
-
-    const handleFailure = (err) => {
-      errors.push(err);
-      if (errors.length === 2 && !resolved) {
-        reject(new Error(`Both download runs failed: ${errors.map(e => e.message).join('; ')}`));
+    let stderrRemainder = '';
+    child.stderr.on('data', (data) => {
+      stderrRemainder += data.toString();
+      const lines = stderrRemainder.split(/[\r\n]+/);
+      stderrRemainder = lines.pop();
+      for (const line of lines) {
+        if (line.trim()) {
+          console.log(`[streamfile2] [${videoId}] [yt-dlp stderr] [+${Date.now() - ytDlpStart}ms] ${line.trim()}`);
+        }
       }
-    };
+    });
 
-    // Run both tasks concurrently and race them
-    runDownloadTask(true, (child) => activeProcesses.push(child))
-      .then(ytDlpTime => handleSuccess({ finalPath: tempFilePath, ytDlpTime }))
-      .catch(handleFailure);
+    child.on('close', (code) => {
+      const ytDlpTime = Date.now() - ytDlpStart;
+      console.log(`[streamfile2] [${videoId}] yt-dlp finished in ${ytDlpTime}ms with exit code: ${code}`);
 
-    runDownloadTask(true, (child) => activeProcesses.push(child))
-      .then(ytDlpTime => handleSuccess({ finalPath: tempFilePath, ytDlpTime }))
-      .catch(handleFailure);
+      if (code === 0 && fs.existsSync(tempFilePath)) {
+        resolve({ finalPath: tempFilePath, ytDlpTime });
+      } else {
+        try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) {}
+        reject(new Error(`yt-dlp failed with code ${code}`));
+      }
+    });
+
+    child.on('error', (err) => {
+      try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) {}
+      reject(err);
+    });
   });
 
   activeDownloads.set(videoId, downloadPromise);
